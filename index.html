@@ -483,7 +483,29 @@ async function updateStatus(id, to, btn) {
     if (cardEl) cardEl.querySelectorAll('button').forEach((b) => (b.disabled = false));
     return;
   }
+  notifyCustomer(id, to);
   await loadOrders();
+}
+
+// Push the status update to the customer's phone (best-effort —
+// never blocks or breaks the kitchen flow).
+async function notifyCustomer(orderId, status) {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return;
+    fetch(SUPABASE_URL + '/functions/v1/notify-order-status', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ order_id: orderId, status }),
+    }).catch(() => {});
+  } catch {
+    /* best-effort */
+  }
 }
 
 // ── Elapsed-time ticker ──
