@@ -463,7 +463,7 @@ function card(o, prof) {
   return `
     <div class="card s-${o.status} ${flash}" id="card-${o.id}">
       <div class="card-head">
-        <div class="ordno">#${ordNo(o.id)} <span>${esc((o.fulfillment || '').replace('_',' '))}</span>${o.source === 'web' ? ' <span style="background:var(--gold);color:var(--maroon-d);font-size:9px;padding:2px 7px;border-radius:5px;letter-spacing:.14em;vertical-align:middle;">WEB</span>' : ''}</div>
+        <div class="ordno">${o.source === 'web' ? '<span style="background:var(--gold);color:var(--maroon-d);font-size:9px;padding:2px 7px;border-radius:5px;letter-spacing:.14em;vertical-align:middle;">WEB</span>' : ''}</div>
         <div class="ftype ${o.fulfillment}">${esc((o.fulfillment || '').replace('_',' '))}</div>
       </div>
       <div class="meta">
