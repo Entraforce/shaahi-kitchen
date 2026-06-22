@@ -361,8 +361,11 @@ async function loadOrders() {
 
   let query = supabase
     .from('orders')
-    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, created_at, user_id, order_items(item_name, variant_name, quantity, unit_price, special_instructions)')
+    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, created_at, user_id, guest_name, guest_phone, source, payment_status, order_items(item_name, variant_name, quantity, unit_price, special_instructions)')
     .in('status', statuses)
+    // Show all app orders, but only PAID website (guest) orders — so abandoned
+    // guest checkouts never show up. App orders have a user_id; guest orders don't.
+    .or('user_id.not.is.null,payment_status.eq.paid')
     .order('created_at', { ascending: true });
 
   // When showing completed, keep the list manageable.
@@ -436,10 +439,14 @@ function card(o, prof) {
       </div>
     </div>`).join('');
 
+  // Website orders are guests (no profile) — fall back to the name/phone
+  // captured at web checkout, which ride on the order row itself.
+  const custName = prof?.full_name || o.guest_name || 'Guest';
+  const custPhone = prof?.phone || o.guest_phone || '';
   const custHtml = `
     <div class="cust">
-      <span class="name">${esc(prof?.full_name || 'Guest')}</span>
-      ${prof?.phone ? ` · <a href="tel:${esc(prof.phone)}">${esc(prof.phone)}</a>` : ''}
+      <span class="name">${esc(custName)}</span>
+      ${custPhone ? ` · <a href="tel:${esc(custPhone)}">${esc(custPhone)}</a>` : ''}
       ${o.fulfillment === 'delivery' && addr
         ? `<span class="addr">${esc(addr.street || '')}${addr.apt ? ', ' + esc(addr.apt) : ''}, ${esc(addr.city || '')} ${esc(addr.zip || '')}</span>`
         : ''}
@@ -456,7 +463,7 @@ function card(o, prof) {
   return `
     <div class="card s-${o.status} ${flash}" id="card-${o.id}">
       <div class="card-head">
-        <div class="ordno">#${ordNo(o.id)} <span>${esc((o.fulfillment || '').replace('_',' '))}</span></div>
+        <div class="ordno">#${ordNo(o.id)} <span>${esc((o.fulfillment || '').replace('_',' '))}</span>${o.source === 'web' ? ' <span style="background:var(--gold);color:var(--maroon-d);font-size:9px;padding:2px 7px;border-radius:5px;letter-spacing:.14em;vertical-align:middle;">WEB</span>' : ''}</div>
         <div class="ftype ${o.fulfillment}">${esc((o.fulfillment || '').replace('_',' '))}</div>
       </div>
       <div class="meta">
