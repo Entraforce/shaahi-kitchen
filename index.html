@@ -33,32 +33,34 @@
   button{ font-family:var(--body); cursor:pointer; border:none; }
   .hidden{ display:none !important; }
 
-  /* ── Header ── */
+  /* ── Header (light, so the logo reads with no box) ── */
   header{
     position:sticky; top:0; z-index:20;
     display:flex; align-items:center; justify-content:space-between; gap:12px;
-    padding:13px 22px;
-    background:rgba(11,11,15,.82); backdrop-filter:blur(20px) saturate(140%);
-    border-bottom:1px solid var(--border);
+    padding:12px 22px;
+    background:rgba(251,249,243,.94); backdrop-filter:blur(14px) saturate(120%);
+    border-bottom:2px solid var(--gold-d);
   }
-  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand{ display:flex; align-items:center; gap:14px; }
   .logo-medallion{
-    width:60px; height:60px; border-radius:16px; flex:0 0 auto; overflow:hidden;
-    background:#FCFBF7; border:1px solid var(--border-2); padding:3px;
+    width:62px; height:62px; flex:0 0 auto; overflow:hidden;
+    background:transparent; border:none;
     display:flex; align-items:center; justify-content:center;
   }
   .logo-medallion img{ width:100%; height:100%; object-fit:contain; }
-  .logo-medallion.lg{ width:92px; height:92px; border-radius:26px; }
-  .brand h1{ font-family:var(--display); margin:0; font-size:18px; letter-spacing:.16em; color:var(--text); text-transform:uppercase; font-weight:700; }
-  .brand .sub{ font-size:10px; font-weight:700; letter-spacing:.18em; color:var(--gold); text-transform:uppercase; background:rgba(201,168,76,.12); padding:4px 10px; border-radius:999px; }
+  .logo-medallion.lg{ width:150px; height:150px; background:#FBF9F3; border-radius:30px; padding:10px; box-shadow:0 12px 34px rgba(0,0,0,.4); }
+  .brand h1{ font-family:var(--display); margin:0; font-size:18px; letter-spacing:.16em; color:var(--maroon); text-transform:uppercase; font-weight:700; }
+  .brand .sub{ font-size:10px; font-weight:800; letter-spacing:.18em; color:var(--maroon); text-transform:uppercase; background:rgba(92,10,20,.1); padding:4px 11px; border-radius:999px; }
   .head-right{ display:flex; align-items:center; gap:14px; }
-  .clock{ font-variant-numeric:tabular-nums; color:var(--text-2); font-size:15px; font-weight:600; letter-spacing:.03em; }
+  .clock{ font-variant-numeric:tabular-nums; color:#4A3A14; font-size:15px; font-weight:700; letter-spacing:.03em; }
   .pill-btn{ background:var(--surface-2); color:var(--text-2); border:1px solid var(--border); padding:9px 16px; border-radius:11px; font-size:12px; font-weight:600; letter-spacing:.02em; transition:background .15s,color .15s,border-color .15s; }
   .pill-btn:hover{ background:var(--elevate); color:var(--text); border-color:var(--border-2); }
+  header .pill-btn{ background:rgba(92,10,20,.06); color:#5C0A14; border-color:rgba(92,10,20,.22); }
+  header .pill-btn:hover{ background:rgba(92,10,20,.12); color:#3A0509; border-color:rgba(92,10,20,.35); }
   .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:7px; vertical-align:middle; }
-  .dot.live{ background:var(--ready); box-shadow:0 0 0 3px rgba(52,211,153,.2); }
-  .dot.off{ background:var(--text-3); }
-  .conn{ font-size:11px; font-weight:600; letter-spacing:.08em; color:var(--text-3); text-transform:uppercase; }
+  .dot.live{ background:#1F9D57; box-shadow:0 0 0 3px rgba(31,157,87,.18); }
+  .dot.off{ background:#b9aa86; }
+  .conn{ font-size:11px; font-weight:700; letter-spacing:.08em; color:#8A6E30; text-transform:uppercase; }
 
   /* ── Login ── */
   #login-view{ min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; gap:8px; }
@@ -157,6 +159,7 @@
   .sound-prompt{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--surface-2); color:var(--gold); border:1px solid var(--border-2); padding:13px 22px; border-radius:999px; font-size:13px; font-weight:600; z-index:50; cursor:pointer; box-shadow:0 12px 30px rgba(0,0,0,.5); }
   .sound-prompt:hover{ background:var(--elevate); }
 </style>
+
 
 </head>
 <body>
