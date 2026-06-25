@@ -472,10 +472,6 @@ function card(o, prof) {
       </div>
       ${custHtml}
       <div class="items">${itemsHtml || '<div class="line-variant">No items</div>'}</div>
-      <div class="totals">
-        <span class="lbl">Total ${o.points_redeemed ? `<span class="redeemed">· ${o.points_redeemed} pts used</span>` : ''}</span>
-        <span class="amt">${fmtMoney(o.total)}</span>
-      </div>
       ${actionsHtml}
     </div>`;
 }
