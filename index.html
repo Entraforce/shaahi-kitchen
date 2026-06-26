@@ -40,8 +40,8 @@
   #watermark{
     position:fixed; inset:0; z-index:0; pointer-events:none;
     background:url('logo-watermark.png') no-repeat center center;
-    background-size:clamp(380px, 70vw, 880px) auto;
-    opacity:.07;
+    background-size:min(58vmin, 540px) auto;
+    opacity:.055;
   }
   #login-view,#board-view{ position:relative; z-index:1; }
 
@@ -96,7 +96,7 @@
   .toggle{ color:var(--text-3); font-size:12px; font-weight:600; display:flex; align-items:center; gap:8px; cursor:pointer; text-transform:uppercase; letter-spacing:.02em; }
   .toggle input{ width:16px; height:16px; accent-color:var(--gold-d); }
 
-  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:16px; align-items:start; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr)); gap:16px; align-items:start; }
 
   /* ── Card (glassmorphism) ── */
   .card{
@@ -170,6 +170,30 @@
 
   .sound-prompt{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--glass-2); backdrop-filter:blur(16px); color:var(--gold); border:1px solid var(--border-2); padding:13px 22px; border-radius:999px; font-size:13px; font-weight:600; z-index:50; cursor:pointer; box-shadow:0 14px 34px rgba(0,0,0,.55); }
   .sound-prompt:hover{ background:var(--glass-strong); }
+
+  /* ── Mobile / small screens ── */
+  @media (max-width:640px){
+    header{ padding:10px 14px; }
+    .brand{ gap:10px; }
+    .brand h1{ display:none; }
+    .logo-medallion{ width:40px; height:40px; border-radius:12px; }
+    .brand .sub{ font-size:9px; padding:3px 8px; letter-spacing:.14em; }
+    .head-right{ gap:9px; }
+    .clock{ font-size:13px; }
+    #conn-text{ display:none; }
+    .pill-btn{ padding:8px 12px; font-size:11px; }
+    .count-chip{ font-size:11px; }
+    .count-chip b{ font-size:20px; padding:2px 11px; }
+    .toggle{ font-size:11px; }
+    .grid{ gap:13px; }
+    #watermark{ background-size:min(74vmin, 380px) auto; opacity:.05; }
+    .line-name{ font-size:16px; }
+    .act{ padding:14px 6px; font-size:12px; }
+    .sound-prompt{ font-size:12px; padding:11px 18px; bottom:14px; }
+  }
+  @media (max-width:380px){
+    .brand .sub{ display:none; }
+  }
 </style>
 
 
