@@ -171,6 +171,30 @@
   .sound-prompt{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--glass-2); backdrop-filter:blur(16px); color:var(--gold); border:1px solid var(--border-2); padding:13px 22px; border-radius:999px; font-size:13px; font-weight:600; z-index:50; cursor:pointer; box-shadow:0 14px 34px rgba(0,0,0,.55); }
   .sound-prompt:hover{ background:var(--glass-strong); }
 
+  /* ── Refunds ── */
+  #refunds-view{ padding:0; }
+  .refund-toolbar{ display:flex; gap:10px; align-items:center; margin:16px 0; flex-wrap:wrap; }
+  .refund-search{ flex:1; min-width:220px; background:rgba(0,0,0,.3); border:1px solid var(--border-2); color:var(--text); padding:11px 14px; border-radius:11px; font-size:14px; font-family:var(--body); }
+  .refund-search::placeholder{ color:var(--text-3); }
+  .refund-search:focus{ outline:none; border-color:var(--gold-d); }
+  .web-badge{ background:var(--gold); color:var(--maroon); font-size:9px; padding:2px 7px; border-radius:5px; letter-spacing:.14em; font-weight:800; margin-right:8px; }
+  .refund-badge{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:800; padding:5px 13px; border-radius:999px; }
+  .rb-partial{ background:var(--delivery); color:#3a1e00; }
+  .rb-full{ background:var(--ready); color:#053826; }
+  .refund-items{ padding:12px 16px; display:flex; flex-direction:column; gap:10px; border-top:1px solid var(--border); }
+  .ritem{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .ritem-name{ color:var(--text); font-size:15px; font-weight:700; }
+  .ritem-variant{ color:var(--text-3); font-weight:500; }
+  .ritem-sub{ color:var(--text-3); font-size:13px; margin-top:2px; }
+  .ritem-qty{ width:56px; background:rgba(0,0,0,.3); border:1px solid var(--border-2); color:var(--text); padding:8px; border-radius:8px; font-size:15px; text-align:center; font-family:var(--body); }
+  .ritem-qty:disabled{ opacity:.4; }
+  .refund-summary{ padding:10px 16px; display:flex; justify-content:space-between; border-top:1px solid var(--border); color:var(--text-2); font-size:13px; }
+  .refund-summary .amt{ color:var(--gold); font-weight:800; }
+  .refund-panel{ padding:12px 16px 16px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:10px; }
+  .refund-live-total{ color:var(--text-2); font-size:14px; }
+  .refund-live-total b{ color:var(--gold); font-size:17px; }
+  .refund-reason{ background:rgba(0,0,0,.3); border:1px solid var(--border-2); color:var(--text); padding:11px 12px; border-radius:11px; font-size:14px; font-family:var(--body); }
+
   /* ── Mobile / small screens ── */
   @media (max-width:640px){
     header{ padding:10px 14px; }
@@ -227,6 +251,7 @@
       <div class="head-right">
         <span class="conn"><span id="conn-dot" class="dot off"></span><span id="conn-text">connecting…</span></span>
         <span id="clock" class="clock"></span>
+        <button id="refunds-nav-btn" class="pill-btn">Refunds</button>
         <button id="signout-btn" class="pill-btn">Sign out</button>
       </div>
     </header>
@@ -245,6 +270,32 @@
         <div class="big">No active orders</div>
         <div>New orders will appear here automatically.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- REFUNDS -->
+  <div id="refunds-view" class="hidden">
+    <header>
+      <div class="brand">
+        <div class="logo-medallion"><img src="logo.png" alt="Shaahi Biryani" /></div>
+        <h1>Shaahi Biryani</h1>
+        <span class="sub">Refunds</span>
+      </div>
+      <div class="head-right">
+        <button id="board-nav-btn" class="pill-btn">Board</button>
+        <button id="refunds-signout-btn" class="pill-btn">Sign out</button>
+      </div>
+    </header>
+
+    <div style="padding:0 18px;">
+      <div class="refund-toolbar">
+        <input id="refund-search" class="refund-search" type="text" placeholder="Search by customer name or phone…" autocapitalize="none" autocorrect="off" spellcheck="false" />
+        <button id="refund-refresh-btn" class="pill-btn">Refresh</button>
+      </div>
+    </div>
+
+    <div style="padding:0 18px 40px;">
+      <div id="refund-order-list" class="grid"></div>
     </div>
   </div>
 
@@ -301,8 +352,19 @@ async function init() {
 function showLogin() {
   $('login-view').classList.remove('hidden');
   $('board-view').classList.add('hidden');
+  $('refunds-view').classList.add('hidden');
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   unsubscribeRealtime();
+}
+
+function showBoard() {
+  $('board-view').classList.remove('hidden');
+  $('refunds-view').classList.add('hidden');
+}
+function showRefunds() {
+  $('board-view').classList.add('hidden');
+  $('refunds-view').classList.remove('hidden');
+  loadRefundOrders();
 }
 
 $('login-btn').addEventListener('click', doLogin);
@@ -518,6 +580,174 @@ async function notifyCustomer(orderId, status) {
   }
 }
 
+// ── Refunds ──
+// Mirrors the server-side proportional-tax formula in begin_refund() purely
+// for the live preview — the Edge Function recomputes and enforces the real
+// number, so a bug here can't under/over-refund.
+function proportionalTaxCents(order, newCumulativeSubtotalCents) {
+  const originalSubtotalCents = Math.round(Number(order.subtotal) * 100);
+  const originalTaxCents = Math.round(Number(order.tax) * 100);
+  if (originalSubtotalCents <= 0) return 0;
+  if (newCumulativeSubtotalCents >= originalSubtotalCents) return originalTaxCents;
+  return Math.round((originalTaxCents * newCumulativeSubtotalCents) / originalSubtotalCents);
+}
+
+async function loadRefundOrders() {
+  const term = $('refund-search').value.trim();
+  let query = supabase
+    .from('orders')
+    .select('id, source, guest_name, guest_phone, subtotal, tax, total, payment_status, subtotal_refunded_cents, tax_refunded_cents, refund_status, stripe_payment_intent, created_at, order_items(id, item_name, variant_name, quantity, unit_price, refunded_quantity)')
+    .eq('payment_status', 'paid')
+    .order('created_at', { ascending: false })
+    .limit(term ? 200 : 20);
+  if (term) {
+    query = query.or(`guest_name.ilike.%${term}%,guest_phone.ilike.%${term}%`);
+  }
+
+  const listEl = $('refund-order-list');
+  const { data: orders, error } = await query;
+  if (error) {
+    listEl.innerHTML = `<div class="empty"><div class="big">Couldn't load orders</div><div>${esc(error.message)}</div></div>`;
+    return;
+  }
+  if (!orders.length) {
+    listEl.innerHTML = `<div class="empty"><div class="big">No paid orders found</div><div>Try a different search.</div></div>`;
+    return;
+  }
+
+  listEl.innerHTML = orders.map(refundOrderCard).join('');
+  orders.forEach((o) => {
+    const el = document.getElementById('rcard-' + o.id);
+    if (!el) return;
+    el.querySelectorAll('.ritem-qty').forEach((input) => {
+      input.addEventListener('input', () => updateRefundLiveTotal(el, o));
+    });
+    const btn = el.querySelector('.refund-confirm-btn');
+    if (btn) btn.addEventListener('click', () => submitRefund(o.id, el, o));
+  });
+}
+
+function refundOrderCard(o) {
+  const items = o.order_items || [];
+  const custName = o.guest_name || 'Guest';
+  const custPhone = o.guest_phone || '';
+  const rStatus = o.refund_status || 'none';
+  const rLabel = rStatus === 'full' ? 'Refunded' : rStatus === 'partial' ? 'Partially refunded' : '';
+
+  const itemRows = items.map((it) => {
+    const remaining = it.quantity - (it.refunded_quantity || 0);
+    return `
+      <div class="ritem" data-item="${it.id}" data-unit-cents="${Math.round(Number(it.unit_price) * 100)}" data-remaining="${remaining}">
+        <div class="ritem-info">
+          <div class="ritem-name">${esc(it.item_name)}${it.variant_name ? ` <span class="ritem-variant">· ${esc(it.variant_name)}</span>` : ''}</div>
+          <div class="ritem-sub">${fmtMoney(it.unit_price)} each · ${it.quantity} ordered${it.refunded_quantity ? `, ${it.refunded_quantity} already refunded` : ''}</div>
+        </div>
+        <input type="number" class="ritem-qty" min="0" max="${remaining}" value="0" ${remaining <= 0 ? 'disabled' : ''} />
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="card refund-card" id="rcard-${o.id}">
+      <div class="card-head">
+        <div class="ordno">
+          ${o.source === 'web' ? '<span class="web-badge">WEB</span>' : ''}
+          <span style="color:var(--text-2);font-weight:700;">#${ordNo(o.id)}</span>
+        </div>
+        ${rLabel ? `<span class="refund-badge rb-${rStatus}">${rLabel}</span>` : ''}
+      </div>
+      <div class="cust">
+        <span class="name">${esc(custName)}</span>
+        ${custPhone ? ` · <a href="tel:${esc(custPhone)}">${esc(custPhone)}</a>` : ''}
+      </div>
+      <div class="refund-items">${itemRows || '<div class="line-variant">No items</div>'}</div>
+      <div class="refund-summary">
+        <span class="lbl">Order total</span>
+        <span class="amt">${fmtMoney(o.total)}</span>
+      </div>
+      <div class="refund-panel">
+        <div class="refund-live-total">Refund total: <b>$0.00</b></div>
+        <select class="refund-reason">
+          <option value="requested_by_customer">Requested by customer</option>
+          <option value="duplicate">Duplicate charge</option>
+          <option value="fraudulent">Fraudulent</option>
+          <option value="other">Other</option>
+        </select>
+        <button class="act primary refund-confirm-btn" data-order="${o.id}" disabled>Refund selected items</button>
+        <div class="refund-err err"></div>
+      </div>
+    </div>`;
+}
+
+function updateRefundLiveTotal(orderEl, order) {
+  const rows = orderEl.querySelectorAll('.ritem');
+  let subtotalCents = 0;
+  let any = false;
+  rows.forEach((row) => {
+    const input = row.querySelector('.ritem-qty');
+    const max = Number(row.dataset.remaining) || 0;
+    let qty = Math.floor(Number(input.value)) || 0;
+    if (qty < 0) qty = 0;
+    if (qty > max) qty = max;
+    input.value = qty;
+    if (qty > 0) { any = true; subtotalCents += qty * Number(row.dataset.unitCents); }
+  });
+  const priorSubtotal = order.subtotal_refunded_cents || 0;
+  const priorTax = order.tax_refunded_cents || 0;
+  const newCumulative = priorSubtotal + subtotalCents;
+  const idealTax = proportionalTaxCents(order, newCumulative);
+  const taxDelta = idealTax - priorTax;
+  const totalCents = subtotalCents + taxDelta;
+  orderEl.querySelector('.refund-live-total b').textContent = fmtMoney(totalCents / 100);
+  orderEl.querySelector('.refund-confirm-btn').disabled = !any;
+  return { any };
+}
+
+async function submitRefund(orderId, orderEl, order) {
+  const lines = [];
+  orderEl.querySelectorAll('.ritem').forEach((row) => {
+    const qty = Math.floor(Number(row.querySelector('.ritem-qty').value)) || 0;
+    if (qty > 0) lines.push({ orderItemId: row.getAttribute('data-item'), quantity: qty });
+  });
+  if (!lines.length) return;
+
+  const reason = orderEl.querySelector('.refund-reason').value;
+  const errEl = orderEl.querySelector('.refund-err');
+  const btn = orderEl.querySelector('.refund-confirm-btn');
+  errEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'Refunding…';
+  orderEl.querySelectorAll('.ritem-qty').forEach((el) => (el.disabled = true));
+  orderEl.querySelector('.refund-reason').disabled = true;
+
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) throw new Error('Session expired — please sign in again.');
+    const clientRequestId = crypto.randomUUID();
+    const resp = await fetch(SUPABASE_URL + '/functions/v1/refund-order-items', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ orderId, lines, reason, clientRequestId }),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(json.error || 'Refund failed.');
+    await loadRefundOrders();
+  } catch (err) {
+    errEl.textContent = err.message || 'Refund failed. Please try again.';
+    btn.disabled = false;
+    btn.textContent = 'Refund selected items';
+    orderEl.querySelector('.refund-reason').disabled = false;
+    orderEl.querySelectorAll('.ritem').forEach((row) => {
+      const remaining = Number(row.getAttribute('data-remaining')) || 0;
+      row.querySelector('.ritem-qty').disabled = remaining <= 0;
+    });
+  }
+}
+
 // ── Elapsed-time ticker ──
 function tickElapsed() {
   document.querySelectorAll('.elapsed[data-created]').forEach((el) => {
@@ -567,6 +797,19 @@ function chime() {
 // ── Listeners ──
 $('show-done').addEventListener('change', loadOrders);
 $('refresh-btn').addEventListener('click', loadOrders);
+$('refunds-nav-btn').addEventListener('click', showRefunds);
+$('board-nav-btn').addEventListener('click', showBoard);
+$('refunds-signout-btn').addEventListener('click', async () => {
+  await supabase.auth.signOut();
+  knownPendingIds = new Set(); firstLoad = true;
+  showLogin();
+});
+$('refund-refresh-btn').addEventListener('click', loadRefundOrders);
+let refundSearchTimer = null;
+$('refund-search').addEventListener('input', () => {
+  clearTimeout(refundSearchTimer);
+  refundSearchTimer = setTimeout(loadRefundOrders, 350);
+});
 supabase.auth.onAuthStateChange((event) => {
   if (event === 'SIGNED_OUT') showLogin();
 });
