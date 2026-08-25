@@ -430,7 +430,7 @@ async function loadOrders() {
 
   let query = supabase
     .from('orders')
-    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, created_at, user_id, guest_name, guest_phone, source, payment_status, order_items(item_name, variant_name, quantity, unit_price, special_instructions)')
+    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, order_items(item_name, variant_name, quantity, unit_price, special_instructions)')
     .in('status', statuses)
     // Show all app orders, but only PAID website (guest) orders — so abandoned
     // guest checkouts never show up. App orders have a user_id; guest orders don't.
@@ -516,6 +516,8 @@ function card(o, prof) {
     <div class="cust">
       <span class="name">${esc(custName)}</span>
       ${custPhone ? ` · <a href="tel:${esc(custPhone)}">${esc(custPhone)}</a>` : ''}
+      ${o.fulfillment === 'dine_in' && o.table_number
+        ? `<div class="addr"><strong>Table ${esc(String(o.table_number))}</strong></div>` : ''}
       ${o.fulfillment === 'delivery' && addr
         ? `<span class="addr">${esc(addr.street || '')}${addr.apt ? ', ' + esc(addr.apt) : ''}, ${esc(addr.city || '')} ${esc(addr.zip || '')}</span>`
         : ''}
