@@ -435,6 +435,7 @@ async function loadOrders() {
     // Show all app orders, but only PAID website (guest) orders — so abandoned
     // guest checkouts never show up. App orders have a user_id; guest orders don't.
     .or('user_id.not.is.null,payment_status.eq.paid')
+    .eq('is_test', false)   // never show self-test rows to the kitchen
     .order('created_at', { ascending: true });
 
   // When showing completed, keep the list manageable.
@@ -600,6 +601,7 @@ async function loadRefundOrders() {
     .from('orders')
     .select('id, source, guest_name, guest_phone, subtotal, tax, total, payment_status, subtotal_refunded_cents, tax_refunded_cents, refund_status, stripe_payment_intent, created_at, order_items(id, item_name, variant_name, quantity, unit_price, refunded_quantity)')
     .eq('payment_status', 'paid')
+    .eq('is_test', false)
     .order('created_at', { ascending: false })
     .limit(term ? 200 : 20);
   if (term) {
