@@ -132,6 +132,10 @@
   .sb-out_for_delivery{ background:var(--delivery); color:#3a1e00; }
   .sb-delivered,.sb-cancelled{ background:rgba(255,255,255,.08); color:var(--text-2); }
   .elapsed{ font-size:14px; font-weight:700; color:var(--text-2); font-variant-numeric:tabular-nums; }
+  /* When the order was placed. Deliberately quieter than .elapsed — the
+     countdown is what drives the line; this is for reconciling a ticket
+     against the POS, and for telling apart orders either side of midnight. */
+  .placed{ font-size:12px; font-weight:600; color:var(--text-2); opacity:.72; font-variant-numeric:tabular-nums; }
   .elapsed.warn{ color:var(--new); }
   .elapsed.late{ color:var(--danger); }
 
@@ -541,6 +545,7 @@ function card(o, prof) {
       <div class="meta">
         <span class="status-badge sb-${o.status}">${esc(statusLabel)}</span>
         <span class="elapsed" data-created="${o.created_at}"></span>
+        <span class="placed">${fmtPlaced(o.created_at)}</span>
       </div>
       ${custHtml}
       <div class="items">${itemsHtml || '<div class="line-variant">No items</div>'}</div>
@@ -750,6 +755,20 @@ async function submitRefund(orderId, orderEl, order) {
       row.querySelector('.ritem-qty').disabled = remaining <= 0;
     });
   }
+}
+
+// ── Placed-at stamp ──
+// Rendered once per card, not ticked: this is a fixed fact about the order.
+// Date is always shown, not just for older orders — a screen left open across
+// midnight would otherwise show "11:58 PM" and "12:04 AM" with no way to tell
+// they are different days.
+function fmtPlaced(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString([], {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
 }
 
 // ── Elapsed-time ticker ──
