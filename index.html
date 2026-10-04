@@ -124,6 +124,11 @@
   .ftype.dine_in{ background:rgba(201,168,76,.18); color:var(--gold); }
 
   .meta{ display:flex; align-items:center; justify-content:space-between; padding:11px 16px; }
+  .pay{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:800; padding:5px 11px; border-radius:999px; }
+  .pay.paid{ background:rgba(16,185,129,.16); color:#6ee7b7; }
+  .pay.owing{ background:#F59E0B; color:#3a2c00; }
+  .pay.unpaid{ background:rgba(239,68,68,.2); color:#fca5a5; }
+  .act.takepay{ background:#F59E0B; color:#3a2c00; }
   .status-badge{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:800; padding:5px 13px; border-radius:999px; }
   .sb-pending{ background:var(--new); color:#3a2c00; }
   .sb-accepted{ background:var(--accepted); color:#06203f; }
@@ -434,7 +439,7 @@ async function loadOrders() {
 
   let query = supabase
     .from('orders')
-    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, order_items(item_name, variant_name, quantity, unit_price, special_instructions)')
+    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, payment_method, order_items(item_name, variant_name, quantity, unit_price, special_instructions)')
     .in('status', statuses)
     // Show all app orders, but only PAID website (guest) orders — so abandoned
     // guest checkouts never show up. App orders have a user_id; guest orders don't.
@@ -494,6 +499,30 @@ function render(orders, profiles) {
       updateStatus(id, to, btn);
     });
   });
+
+  // Taking payment at the table. Confirmed first because it is the one
+  // action here that says money changed hands, and nothing else on this
+  // screen can undo it.
+  grid.querySelectorAll('button[data-paid]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-paid');
+      if (!confirm('Mark this order paid? Do this only once the card terminal or cash has gone through.')) return;
+      markPaidAtTable(id, btn);
+    });
+  });
+}
+
+async function markPaidAtTable(id, btn) {
+  btn.disabled = true;
+  // The RPC is staff-gated and refuses any order that is not pay-at-table,
+  // so this cannot be used to clear a failed card payment.
+  const { error } = await supabase.rpc('mark_order_paid_at_table', { p_order_id: id });
+  if (error) {
+    alert('Could not mark paid: ' + error.message);
+    btn.disabled = false;
+    return;
+  }
+  await loadOrders();
 }
 
 function card(o, prof) {
@@ -533,13 +562,33 @@ function card(o, prof) {
         : ''}
     </div>`;
 
-  const actionsHtml = isDone ? '' : `
+  // Offered only for an at_table order that is still owing — the RPC refuses
+  // anything else, so this button cannot become a way to mark a failed card
+  // payment as paid.
+  const takePaymentHtml = atTable && !isPaid
+    ? `<button class="act takepay" data-paid="${o.id}">Mark paid</button>`
+    : '';
+  const actionsHtml = isDone && !takePaymentHtml ? '' : `
     <div class="actions">
-      ${acts.map((a) => `<button class="act ${a.cls}" data-order="${o.id}" data-to="${a.to}">${a.label}</button>`).join('')}
-      <button class="act danger" data-order="${o.id}" data-to="cancelled">Cancel</button>
+      ${takePaymentHtml}
+      ${isDone ? '' : acts.map((a) => `<button class="act ${a.cls}" data-order="${o.id}" data-to="${a.to}">${a.label}</button>`).join('')}
+      ${isDone ? '' : `<button class="act danger" data-order="${o.id}" data-to="cancelled">Cancel</button>`}
     </div>`;
 
   const statusLabel = o.status.replace(/_/g, ' ');
+
+  // IS THIS PAID? The display never said, because until now everything that
+  // reached it had already been charged. A guest can now choose to settle
+  // with their server, so a ticket can legitimately be unpaid while the food
+  // is being cooked — and staff have to be able to see that at a glance, or
+  // the meal walks out the door for free.
+  const atTable = o.payment_method === 'at_table';
+  const isPaid = o.payment_status === 'paid';
+  const payHtml = isPaid
+    ? '<span class="pay paid">Paid</span>'
+    : atTable
+      ? '<span class="pay owing">Pay at table</span>'
+      : '<span class="pay unpaid">Unpaid</span>';
 
   return `
     <div class="card s-${o.status} ${flash}" id="card-${o.id}">
@@ -549,6 +598,7 @@ function card(o, prof) {
       </div>
       <div class="meta">
         <span class="status-badge sb-${o.status}">${esc(statusLabel)}</span>
+        ${payHtml}
         <span class="elapsed" data-created="${o.created_at}"></span>
         <span class="placed">${fmtPlaced(o.created_at)}</span>
       </div>
