@@ -506,17 +506,34 @@ function render(orders, profiles) {
   grid.querySelectorAll('button[data-paid]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-paid');
-      if (!confirm('Mark this order paid? Do this only once the card terminal or cash has gone through.')) return;
-      markPaidAtTable(id, btn);
+      const billed = Number(btn.getAttribute('data-total') || 0);
+      // WHAT WAS ACTUALLY COLLECTED, not what was billed. It is prefilled
+      // with the bill, so the normal case is one Enter — but a guest who
+      // rounds up or adds a cash tip pays a different number, and that is
+      // the figure loyalty points are calculated from.
+      const entered = prompt(
+        'Mark paid — how much was collected?\n\nOnly do this once the card terminal or cash has gone through.',
+        billed.toFixed(2),
+      );
+      if (entered === null) return; // cancelled
+      const amount = Number(String(entered).replace(/[^0-9.]/g, ''));
+      if (!Number.isFinite(amount) || amount <= 0) {
+        alert('That is not an amount. Nothing was changed.');
+        return;
+      }
+      markPaidAtTable(id, Math.round(amount * 100), btn);
     });
   });
 }
 
-async function markPaidAtTable(id, btn) {
+async function markPaidAtTable(id, amountCents, btn) {
   btn.disabled = true;
-  // The RPC is staff-gated and refuses any order that is not pay-at-table,
-  // so this cannot be used to clear a failed card payment.
-  const { error } = await supabase.rpc('mark_order_paid_at_table', { p_order_id: id });
+  // Staff-gated, and refuses any order that is not pay-at-table — so this
+  // cannot become a way to clear a card payment that failed.
+  const { error } = await supabase.rpc('mark_order_paid_at_table', {
+    p_order_id: id,
+    p_amount_cents: amountCents,
+  });
   if (error) {
     alert('Could not mark paid: ' + error.message);
     btn.disabled = false;
@@ -566,7 +583,7 @@ function card(o, prof) {
   // anything else, so this button cannot become a way to mark a failed card
   // payment as paid.
   const takePaymentHtml = atTable && !isPaid
-    ? `<button class="act takepay" data-paid="${o.id}">Mark paid</button>`
+    ? `<button class="act takepay" data-paid="${o.id}" data-total="${Number(o.total) || 0}">Mark paid</button>`
     : '';
   const actionsHtml = isDone && !takePaymentHtml ? '' : `
     <div class="actions">
