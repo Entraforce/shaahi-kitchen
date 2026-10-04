@@ -124,6 +124,14 @@
   .ftype.dine_in{ background:rgba(201,168,76,.18); color:var(--gold); }
 
   .meta{ display:flex; align-items:center; justify-content:space-between; padding:11px 16px; }
+  .line.voided{ opacity:.45; }
+  .line.voided .line-name{ text-decoration:line-through; }
+  .voidtag{ font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:#fca5a5;
+            border:1px solid rgba(239,68,68,.45); border-radius:5px; padding:1px 5px; margin-left:6px; }
+  .voidbtn{ align-self:center; background:transparent; color:rgba(240,230,214,.5);
+            border:1px solid rgba(240,230,214,.22); border-radius:7px; font-size:11px;
+            font-weight:700; padding:4px 10px; cursor:pointer; }
+  .voidbtn:hover{ color:#fca5a5; border-color:rgba(239,68,68,.5); }
   .pay{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:800; padding:5px 11px; border-radius:999px; }
   .pay.paid{ background:rgba(16,185,129,.16); color:#6ee7b7; }
   .pay.owing{ background:#F59E0B; color:#3a2c00; }
@@ -439,7 +447,7 @@ async function loadOrders() {
 
   let query = supabase
     .from('orders')
-    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, payment_method, order_items(item_name, variant_name, quantity, unit_price, special_instructions)')
+    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, payment_method, order_items(id, item_name, variant_name, quantity, unit_price, special_instructions, voided_at)')
     .in('status', statuses)
     // Show all app orders, but only PAID website (guest) orders — so abandoned
     // guest checkouts never show up. App orders have a user_id; guest orders don't.
@@ -503,6 +511,16 @@ function render(orders, profiles) {
   // Taking payment at the table. Confirmed first because it is the one
   // action here that says money changed hands, and nothing else on this
   // screen can undo it.
+  // Cancelling one item, at the guest's request, with a name against it.
+  grid.querySelectorAll('button[data-void]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-void');
+      const label = btn.getAttribute('data-label') || 'this item';
+      if (!confirm('Cancel "' + label + '" from this order?\n\nThe kitchen may already have started it. This cannot be undone here.')) return;
+      voidItem(id, btn);
+    });
+  });
+
   grid.querySelectorAll('button[data-paid]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-paid');
@@ -524,6 +542,18 @@ function render(orders, profiles) {
       markPaidAtTable(id, Math.round(amount * 100), btn);
     });
   });
+}
+
+async function voidItem(itemId, btn) {
+  btn.disabled = true;
+  // Staff-gated, and refuses a paid order — taking money back is a refund.
+  const { error } = await supabase.rpc('void_order_item', { p_item_id: itemId });
+  if (error) {
+    alert('Could not cancel that item: ' + error.message);
+    btn.disabled = false;
+    return;
+  }
+  await loadOrders();
 }
 
 async function markPaidAtTable(id, amountCents, btn) {
@@ -549,15 +579,27 @@ function card(o, prof) {
   const addr = o.delivery_address;
   const flash = o.status === 'pending' ? 'flash' : '';
 
-  const itemsHtml = items.map((it) => `
-    <div class="line">
+  // A GUEST CANCELS AN ITEM ONLY THROUGH STAFF. Customers have no write path
+  // to a placed order at all — no UPDATE or DELETE policy, no control in the
+  // app — so this button is the only way a line can come off, and only while
+  // the order is unpaid. Once it is paid that is a refund, which has its own
+  // tool and its own Stripe call.
+  const canVoid = o.payment_status !== 'paid' && !isDone;
+  const itemsHtml = items.map((it) => {
+    const dead = !!it.voided_at;
+    return `
+    <div class="line${dead ? ' voided' : ''}">
       <div class="qty">${it.quantity}×</div>
       <div class="line-body">
-        <div class="line-name">${esc(it.item_name)}</div>
+        <div class="line-name">${esc(it.item_name)}${dead ? ' <span class="voidtag">cancelled</span>' : ''}</div>
         ${it.variant_name ? `<div class="line-variant">${esc(it.variant_name)}</div>` : ''}
         ${it.special_instructions ? `<div class="line-note">${esc(it.special_instructions)}</div>` : ''}
       </div>
-    </div>`).join('');
+      ${canVoid && !dead
+        ? `<button class="voidbtn" data-void="${it.id}" data-label="${esc(it.item_name)}" title="Cancel this item at the guest's request">Void</button>`
+        : ''}
+    </div>`;
+  }).join('');
 
   // THE ORDER ROW WINS, THE PROFILE IS THE FALLBACK.
   //
@@ -582,8 +624,21 @@ function card(o, prof) {
   // Offered only for an at_table order that is still owing — the RPC refuses
   // anything else, so this button cannot become a way to mark a failed card
   // payment as paid.
+  // Suggested amount excludes anything staff cancelled, with tax reduced in
+  // the same proportion — derived from the order's OWN figures rather than a
+  // tax rate hardcoded here, which would drift the day the rate changes.
+  const voidedValue = items
+    .filter((it) => it.voided_at)
+    .reduce((n, it) => n + Number(it.unit_price || 0) * Number(it.quantity || 0), 0);
+  const sub = Number(o.subtotal) || 0;
+  const taxRate = sub > 0 ? (Number(o.tax) || 0) / sub : 0;
+  const owed = Math.max(
+    0,
+    Number(o.total || 0) - voidedValue - voidedValue * taxRate,
+  );
+
   const takePaymentHtml = atTable && !isPaid
-    ? `<button class="act takepay" data-paid="${o.id}" data-total="${Number(o.total) || 0}">Mark paid</button>`
+    ? `<button class="act takepay" data-paid="${o.id}" data-total="${owed}">Mark paid</button>`
     : '';
   const actionsHtml = isDone && !takePaymentHtml ? '' : `
     <div class="actions">
