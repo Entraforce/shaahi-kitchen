@@ -513,10 +513,15 @@ function card(o, prof) {
       </div>
     </div>`).join('');
 
-  // Website orders are guests (no profile) — fall back to the name/phone
-  // captured at web checkout, which ride on the order row itself.
-  const custName = prof?.full_name || o.guest_name || 'Guest';
-  const custPhone = prof?.phone || o.guest_phone || '';
+  // THE ORDER ROW WINS, THE PROFILE IS THE FALLBACK.
+  //
+  // guest_name/guest_phone are what the guest actually gave when placing THIS
+  // order — the web checkout always captured them, and the app now does too.
+  // A profile can be edited or left empty afterwards, so it is the weaker
+  // source. App orders placed before the app captured a phone still have no
+  // guest_phone, and those fall through to the profile exactly as before.
+  const custName = o.guest_name || prof?.full_name || 'Guest';
+  const custPhone = o.guest_phone || prof?.phone || '';
   const custHtml = `
     <div class="cust">
       <span class="name">${esc(custName)}</span>
