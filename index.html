@@ -132,6 +132,14 @@
             border:1px solid rgba(240,230,214,.22); border-radius:7px; font-size:11px;
             font-weight:700; padding:4px 10px; cursor:pointer; }
   .voidbtn:hover{ color:#fca5a5; border-color:rgba(239,68,68,.5); }
+  .ctranscript{ margin-top:10px; display:flex; flex-direction:column; gap:7px; max-height:360px; overflow-y:auto; }
+  .cline{ display:flex; gap:9px; align-items:flex-start; font-size:14px; line-height:1.45; }
+  .cwho{ flex:0 0 auto; min-width:62px; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+         font-weight:800; padding-top:3px; }
+  .cguest .cwho{ color:#9cc4f7; }
+  .cmaya  .cwho{ color:var(--gold); }
+  .ctext{ color:var(--text); }
+  .cmaya .ctext{ color:rgba(240,230,214,.82); }
   .pay{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:800; padding:5px 11px; border-radius:999px; }
   .pay.paid{ background:rgba(16,185,129,.16); color:#6ee7b7; }
   .pay.owing{ background:#F59E0B; color:#3a2c00; }
@@ -269,6 +277,7 @@
         <span class="conn"><span id="conn-dot" class="dot off"></span><span id="conn-text">connecting…</span></span>
         <span id="clock" class="clock"></span>
         <button id="refunds-nav-btn" class="pill-btn">Refunds</button>
+        <button id="calls-nav-btn" class="pill-btn">Calls</button>
         <button id="signout-btn" class="pill-btn">Sign out</button>
       </div>
     </header>
@@ -313,6 +322,38 @@
 
     <div style="padding:0 18px 40px;">
       <div id="refund-order-list" class="grid"></div>
+    </div>
+  </div>
+
+  <!-- CALLS — what guests and Maya actually said to each other.
+       Nothing recorded these until now: the voice server logged how long a
+       call ran, never a word of it, so a guest reporting that Maya said
+       something wrong left nothing to look at. Kept 30 days, then deleted. -->
+  <div id="calls-view" class="hidden">
+    <header>
+      <div class="brand">
+        <div class="logo-medallion"><img src="logo.png" alt="Shaahi Biryani" /></div>
+        <h1>Shaahi Biryani</h1>
+        <span class="sub">Calls</span>
+      </div>
+      <div class="head-right">
+        <button id="calls-board-btn" class="pill-btn">Board</button>
+        <button id="calls-signout-btn" class="pill-btn">Sign out</button>
+      </div>
+    </header>
+
+    <div style="padding:0 18px;">
+      <div class="refund-toolbar">
+        <input id="call-search" class="refund-search" type="text" placeholder="Search by customer name, phone, or anything that was said…" autocapitalize="none" autocorrect="off" spellcheck="false" />
+        <button id="call-refresh-btn" class="pill-btn">Refresh</button>
+      </div>
+      <div style="font-size:12px;color:rgba(240,230,214,.45);margin:-4px 0 10px;">
+        Voice calls with Maya, newest first. Kept for 30 days, then deleted automatically.
+      </div>
+    </div>
+
+    <div style="padding:0 18px 40px;">
+      <div id="call-list" class="grid"></div>
     </div>
   </div>
 
@@ -370,6 +411,7 @@ function showLogin() {
   $('login-view').classList.remove('hidden');
   $('board-view').classList.add('hidden');
   $('refunds-view').classList.add('hidden');
+  $('calls-view').classList.add('hidden');
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   unsubscribeRealtime();
 }
@@ -377,11 +419,19 @@ function showLogin() {
 function showBoard() {
   $('board-view').classList.remove('hidden');
   $('refunds-view').classList.add('hidden');
+  $('calls-view').classList.add('hidden');
 }
 function showRefunds() {
   $('board-view').classList.add('hidden');
+  $('calls-view').classList.add('hidden');
   $('refunds-view').classList.remove('hidden');
   loadRefundOrders();
+}
+function showCalls() {
+  $('board-view').classList.add('hidden');
+  $('refunds-view').classList.add('hidden');
+  $('calls-view').classList.remove('hidden');
+  loadCalls();
 }
 
 $('login-btn').addEventListener('click', doLogin);
@@ -554,6 +604,80 @@ async function voidItem(itemId, btn) {
     return;
   }
   await loadOrders();
+}
+
+// ── Calls ────────────────────────────────────────────────────────────────
+async function loadCalls() {
+  const listEl = $('call-list');
+  const term = $('call-search').value.trim();
+  listEl.innerHTML = '<div class="empty"><div class="big">Loading…</div></div>';
+
+  let query = supabase
+    .from('maya_conversations')
+    .select('id, started_at, duration_seconds, end_reason, turns, interruptions, guest_name, guest_phone, transcript')
+    .order('started_at', { ascending: false })
+    .limit(60);
+
+  // Name and phone are searched in the database; the words themselves are
+  // filtered below, because the transcript is JSON and a LIKE over it would
+  // match field names as readily as speech.
+  if (term) query = query.or(`guest_name.ilike.%${term}%,guest_phone.ilike.%${term}%`);
+
+  let { data, error } = await query;
+  if (error) {
+    listEl.innerHTML = `<div class="empty"><div class="big">Could not load calls</div><div>${esc(error.message)}</div></div>`;
+    return;
+  }
+
+  // A search that matches nobody by name may still match something SAID.
+  if (term && (!data || !data.length)) {
+    const all = await supabase
+      .from('maya_conversations')
+      .select('id, started_at, duration_seconds, end_reason, turns, interruptions, guest_name, guest_phone, transcript')
+      .order('started_at', { ascending: false })
+      .limit(200);
+    const needle = term.toLowerCase();
+    data = (all.data || []).filter((c) =>
+      (c.transcript || []).some((t) => String(t.text || '').toLowerCase().includes(needle)));
+  }
+
+  if (!data || !data.length) {
+    listEl.innerHTML = `<div class="empty"><div class="big">No calls found</div><div>${
+      term ? 'Nothing matches that search.' : 'Voice calls appear here once guests start using Ask Shaahi.'
+    }</div></div>`;
+    return;
+  }
+  listEl.innerHTML = data.map(callCard).join('');
+}
+
+function callCard(c) {
+  const when = new Date(c.started_at).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+  const mins = c.duration_seconds != null
+    ? (c.duration_seconds >= 60
+        ? Math.floor(c.duration_seconds / 60) + 'm ' + (c.duration_seconds % 60) + 's'
+        : c.duration_seconds + 's')
+    : '';
+  const who = c.guest_name || 'Guest';
+  const phone = c.guest_phone
+    ? ` · <a href="tel:${esc(c.guest_phone)}">${esc(c.guest_phone)}</a>` : '';
+  const lines = (c.transcript || []).map((t) => `
+      <div class="cline ${t.role === 'guest' ? 'cguest' : 'cmaya'}">
+        <span class="cwho">${t.role === 'guest' ? who : 'Maya'}</span>
+        <span class="ctext">${esc(String(t.text || ''))}</span>
+      </div>`).join('');
+
+  return `
+    <div class="card">
+      <div class="meta">
+        <span class="status-badge sb-delivered">${esc(when)}</span>
+        ${mins ? `<span class="elapsed">${esc(mins)}</span>` : ''}
+        ${c.interruptions ? `<span class="placed">${c.interruptions} interruption${c.interruptions === 1 ? '' : 's'}</span>` : ''}
+      </div>
+      <div class="cust"><span class="name">${esc(who)}</span>${phone}</div>
+      <div class="ctranscript">${lines || '<div class="line-variant">Nothing was said.</div>'}</div>
+    </div>`;
 }
 
 async function markPaidAtTable(id, amountCents, btn) {
@@ -949,6 +1073,11 @@ $('show-done').addEventListener('change', loadOrders);
 $('refresh-btn').addEventListener('click', loadOrders);
 $('refunds-nav-btn').addEventListener('click', showRefunds);
 $('board-nav-btn').addEventListener('click', showBoard);
+$('calls-nav-btn').addEventListener('click', showCalls);
+$('calls-board-btn').addEventListener('click', showBoard);
+$('calls-signout-btn').addEventListener('click', () => $('signout-btn').click());
+$('call-refresh-btn').addEventListener('click', loadCalls);
+$('call-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadCalls(); });
 $('refunds-signout-btn').addEventListener('click', async () => {
   await supabase.auth.signOut();
   knownPendingIds = new Set(); firstLoad = true;
