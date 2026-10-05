@@ -124,6 +124,8 @@
   .ftype.dine_in{ background:rgba(201,168,76,.18); color:var(--gold); }
 
   .meta{ display:flex; align-items:center; justify-content:space-between; padding:11px 16px; }
+  /* Part of the plate, so it reads with the dish rather than as an aside. */
+  .line-side{ color:var(--gold); font-size:13px; font-weight:700; margin-top:1px; }
   .line.voided{ opacity:.45; }
   .line.voided .line-name{ text-decoration:line-through; }
   .voidtag{ font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:#fca5a5;
@@ -497,7 +499,7 @@ async function loadOrders() {
 
   let query = supabase
     .from('orders')
-    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, payment_method, order_items(id, item_name, variant_name, quantity, unit_price, special_instructions, voided_at)')
+    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, payment_method, order_items(id, item_name, variant_name, quantity, unit_price, special_instructions, side_choice, voided_at)')
     .in('status', statuses)
     // Show all app orders, but only PAID website (guest) orders — so abandoned
     // guest checkouts never show up. App orders have a user_id; guest orders don't.
@@ -717,6 +719,7 @@ function card(o, prof) {
       <div class="line-body">
         <div class="line-name">${esc(it.item_name)}${dead ? ' <span class="voidtag">cancelled</span>' : ''}</div>
         ${it.variant_name ? `<div class="line-variant">${esc(it.variant_name)}</div>` : ''}
+        ${it.side_choice ? `<div class="line-side">with ${esc(it.side_choice)}</div>` : ''}
         ${it.special_instructions ? `<div class="line-note">${esc(it.special_instructions)}</div>` : ''}
       </div>
       ${canVoid && !dead
