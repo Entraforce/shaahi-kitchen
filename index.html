@@ -166,6 +166,18 @@
   .cust .name{ color:var(--text); font-weight:700; font-size:17px; }
   .cust a{ color:var(--gold); text-decoration:none; }
   .cust .addr{ display:block; margin-top:3px; color:var(--text-3); font-size:14px; }
+  /* Uber Direct courier status (website delivery orders) */
+  .courier{ margin:0 16px 12px; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.04); border:1px solid var(--border); font-size:14px; color:var(--text-2); }
+  .courier .ct{ display:flex; align-items:center; gap:8px; font-weight:800; color:var(--text); font-size:15px; }
+  .courier .cdot{ width:10px; height:10px; border-radius:50%; background:#9ca3af; flex:none; }
+  .courier.c-wait .cdot{ background:#F59E0B; } .courier.c-booked .cdot{ background:#60a5fa; }
+  .courier.c-arriving .cdot{ background:#a78bfa; } .courier.c-picked .cdot{ background:#34d399; }
+  .courier.c-done .cdot{ background:#10b981; } .courier.c-bad{ border-color:#ef4444; background:rgba(239,68,68,.12); }
+  .courier.c-bad .cdot{ background:#ef4444; }
+  .courier .cd{ margin-top:4px; line-height:1.45; }
+  .courier a{ color:var(--gold); font-weight:700; text-decoration:none; }
+  .card.needs-attn{ box-shadow:0 0 0 3px #ef4444 inset; }
+  .attn-bar{ margin:0 0 12px; padding:10px 14px; border-radius:10px; background:#7f1d1d; color:#fff; font-weight:800; }
 
   .items{ padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
   .line{ display:flex; gap:12px; align-items:baseline; }
@@ -373,10 +385,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 const POLL_MS = 10000;
+const COURIER_COLS = 'uber_delivery_id, uber_status, uber_tracking_url, uber_courier, uber_dispatch_state, uber_dispatch_error, courier_tip, refund_status';
+let courierCols = true;
 const ACTIVE = ['pending','accepted','preparing','ready','out_for_delivery'];
 
 // Status → which transitions a button offers
-function nextActions(status, fulfillment) {
+function nextActions(status, fulfillment, uberManaged) {
+  // A courier booked through Uber Direct moves the order to "out for delivery"
+  // and "delivered" itself (from Uber's updates), so staff only cook and mark ready.
+  if (uberManaged && (status === 'ready' || status === 'out_for_delivery')) return [];
   switch (status) {
     case 'pending':    return [{ label: 'Accept', to: 'accepted', cls: 'primary' }];
     case 'accepted':   return [{ label: 'Start preparing', to: 'preparing', cls: 'primary' }];
@@ -497,9 +514,15 @@ async function loadOrders() {
   const showDone = $('show-done').checked;
   const statuses = showDone ? [...ACTIVE, 'delivered', 'cancelled'] : ACTIVE;
 
+  const BASE_COLS = 'id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, payment_method, order_items(id, item_name, variant_name, quantity, unit_price, special_instructions, side_choice, voided_at)';
+  // Uber Direct courier fields exist only once that migration is applied. Ask
+  // for them while the backend has them; if it says "no such column", drop
+  // back to the base columns for the rest of the session so the board never
+  // blanks because of this feature.
+  const cols = courierCols ? BASE_COLS + ', ' + COURIER_COLS : BASE_COLS;
   let query = supabase
     .from('orders')
-    .select('id, status, fulfillment, subtotal, tax, delivery_fee, tip, total, points_redeemed, delivery_address, table_number, created_at, user_id, guest_name, guest_phone, source, payment_status, payment_method, order_items(id, item_name, variant_name, quantity, unit_price, special_instructions, side_choice, voided_at)')
+    .select(cols)
     .in('status', statuses)
     // Show all app orders, but only PAID website (guest) orders — so abandoned
     // guest checkouts never show up. App orders have a user_id; guest orders don't.
@@ -511,6 +534,10 @@ async function loadOrders() {
   if (showDone) query = query.order('created_at', { ascending: false }).limit(60);
 
   const { data: orders, error } = await query;
+  if (error && courierCols && (error.code === '42703' || /column/i.test(error.message || ''))) {
+    courierCols = false;
+    return loadOrders();
+  }
   if (error) { setConn(false, 'connection lost'); return; }
   setConn(true, 'live');
 
@@ -548,7 +575,9 @@ function render(orders, profiles) {
   }
   $('empty').classList.add('hidden');
 
-  grid.innerHTML = visible.map((o) => card(o, profiles[o.user_id])).join('');
+  const attn = visible.filter((o) => courierInfo(o)?.cls === 'c-bad' && o.status !== 'cancelled').length;
+  grid.innerHTML = (attn ? `<div class="attn-bar" style="grid-column:1/-1">⚠ ${attn} delivery order${attn > 1 ? 's need' : ' needs'} attention — courier problem</div>` : '')
+    + visible.map((o) => card(o, profiles[o.user_id])).join('');
 
   // Wire action buttons.
   grid.querySelectorAll('button[data-order]').forEach((btn) => {
@@ -698,10 +727,45 @@ async function markPaidAtTable(id, amountCents, btn) {
   await loadOrders();
 }
 
+// What the courier is doing, in kitchen words. Website delivery orders only.
+function courierInfo(o) {
+  if (o.fulfillment !== 'delivery' || !('uber_status' in o)) return null;
+  const c = o.uber_courier || {};
+  const t = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+  const who = c.name ? `${c.name}${c.vehicle ? ' · ' + c.vehicle : ''}` : '';
+  const pickup = c.pickup_eta ? `Pickup ~${t(c.pickup_eta)}` : '';
+  const drop = c.dropoff_eta ? `drop-off ~${t(c.dropoff_eta)}` : '';
+  const eta = [pickup, drop].filter(Boolean).join(' · ');
+  if (o.uber_dispatch_state === 'needs_staff' || o.uber_status === 'canceled' || o.uber_status === 'returned') {
+    const why = String(o.uber_dispatch_error || o.uber_status || '').split(':').slice(0, 2).join(': ');
+    return { cls: 'c-bad', title: 'NEEDS ATTENTION — courier problem', detail: `${why || 'Uber could not complete this delivery'}. Call the customer, then rebook or refund.` };
+  }
+  if (o.status === 'cancelled') {
+    if (!o.uber_delivery_id) return null;
+    if (o.uber_status === 'canceled') return { cls: 'c-done', title: 'Courier cancelled', detail: 'Uber courier cancelled with the order.' };
+    if (['pickup_complete', 'dropoff', 'delivered'].includes(o.uber_status)) return { cls: 'c-bad', title: 'Cancelled after pickup — courier has the food', detail: 'Uber could not be cancelled. Call the customer.' };
+    return { cls: 'c-wait', title: 'Cancelling the Uber courier…', detail: 'Within a minute.' };
+  }
+  if (o.payment_status !== 'paid') return { cls: 'c-wait', title: 'Courier: waiting for payment', detail: '' };
+  switch (o.uber_status) {
+    case null: case undefined:
+      return ['pending'].includes(o.status)
+        ? { cls: 'c-wait', title: 'Courier: books when you accept', detail: 'Accept the order and an Uber courier is booked automatically.' }
+        : { cls: 'c-wait', title: 'Booking Uber courier…', detail: 'Usually under a minute.' };
+    case 'pending': return { cls: 'c-booked', title: 'Courier booked', detail: [who, eta].filter(Boolean).join(' · ') || 'Uber is assigning a driver.' };
+    case 'pickup': return { cls: 'c-arriving', title: 'Courier heading here', detail: [who, eta].filter(Boolean).join(' · ') };
+    case 'pickup_complete': return { cls: 'c-picked', title: 'Picked up — on the way', detail: [who, drop].filter(Boolean).join(' · ') };
+    case 'dropoff': return { cls: 'c-picked', title: 'Arriving at customer', detail: [who, drop].filter(Boolean).join(' · ') };
+    case 'delivered': return { cls: 'c-done', title: 'Delivered', detail: who };
+    default: return { cls: 'c-wait', title: `Courier: ${o.uber_status}`, detail: eta };
+  }
+}
+
 function card(o, prof) {
   const items = o.order_items || [];
   const isDone = o.status === 'delivered' || o.status === 'cancelled';
-  const acts = nextActions(o.status, o.fulfillment);
+  const uberManaged = o.fulfillment === 'delivery' && !!(o.uber_delivery_id || o.uber_dispatch_state);
+  const acts = nextActions(o.status, o.fulfillment, uberManaged);
   const addr = o.delivery_address;
   const flash = o.status === 'pending' ? 'flash' : '';
 
@@ -791,7 +855,7 @@ function card(o, prof) {
       : '<span class="pay unpaid">Unpaid</span>';
 
   return `
-    <div class="card s-${o.status} ${flash}" id="card-${o.id}">
+    <div class="card s-${o.status} ${flash}${courierInfo(o)?.cls === 'c-bad' && o.status !== 'cancelled' ? ' needs-attn' : ''}" id="card-${o.id}">
       <div class="card-head">
         <div class="ordno">${o.source === 'web' ? '<span style="background:var(--gold);color:var(--maroon-d);font-size:9px;padding:2px 7px;border-radius:5px;letter-spacing:.14em;vertical-align:middle;">WEB</span>' : ''}</div>
         <div class="ftype ${o.fulfillment}">${esc((o.fulfillment || '').replace('_',' '))}</div>
@@ -803,6 +867,13 @@ function card(o, prof) {
         <span class="placed">${fmtPlaced(o.created_at)}</span>
       </div>
       ${custHtml}
+      ${(() => {
+        const ci = courierInfo(o);
+        if (!ci) return '';
+        const tip = Number(o.courier_tip || 0) > 0 ? ` · courier tip ${fmtMoney(o.courier_tip)} (paid to Uber)` : '';
+        const link = o.uber_tracking_url ? ` · <a href="${esc(o.uber_tracking_url)}" target="_blank" rel="noopener noreferrer">Uber tracking ↗</a>` : '';
+        return `<div class="courier ${ci.cls}"><div class="ct"><span class="cdot"></span>${esc(ci.title)}</div>${ci.detail || tip || link ? `<div class="cd">${esc(ci.detail)}${tip}${link}</div>` : ''}</div>`;
+      })()}
       <div class="items">${itemsHtml || '<div class="line-variant">No items</div>'}</div>
       ${actionsHtml}
     </div>`;
