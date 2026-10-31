@@ -178,6 +178,9 @@
   .courier a{ color:var(--gold); font-weight:700; text-decoration:none; }
   .card.needs-attn{ box-shadow:0 0 0 3px #ef4444 inset; }
   .attn-bar{ margin:0 0 12px; padding:10px 14px; border-radius:10px; background:#7f1d1d; color:#fff; font-weight:800; }
+  .older{ grid-column:1/-1; margin-top:8px; border-top:1px solid rgba(255,255,255,.12); padding-top:12px; }
+  .older > summary{ cursor:pointer; color:rgba(255,255,255,.6); font-weight:700; padding:6px 0; }
+  .older > .grid{ margin-top:12px; opacity:.75; }
 
   .items{ padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
   .line{ display:flex; gap:12px; align-items:baseline; }
@@ -388,6 +391,8 @@ const POLL_MS = 10000;
 const COURIER_COLS = 'uber_delivery_id, uber_status, uber_tracking_url, uber_courier, uber_dispatch_state, uber_dispatch_error, courier_tip, refund_status, auto_refund_state, auto_refund_error';
 let courierCols = true;
 const ACTIVE = ['pending','accepted','preparing','ready','out_for_delivery'];
+const OLDER_HOURS = 14;   // open orders older than this fold under "previous days"
+let olderOpen = false;    // keep that section open/closed across live refreshes
 
 // Status → which transitions a button offers
 function nextActions(status, fulfillment, uberManaged) {
@@ -587,8 +592,20 @@ function render(orders, profiles) {
 
   const urgent = (o) => courierInfo(o)?.cls === 'c-bad' && (o.status !== 'cancelled' || o.auto_refund_state === 'failed');
   const attn = visible.filter(urgent).length;
+  // Orders still open from earlier days used to sit ahead of today's, so a new
+  // order landed at the bottom of a long board. Today's (last OLDER_HOURS)
+  // stay on top; older open ones fold into a section staff can still open.
+  // Display only: no order is changed.
+  const cutoff = Date.now() - OLDER_HOURS * 3600e3;
+  const isOld = (o) => !showDone && ACTIVE.includes(o.status) && !urgent(o) && new Date(o.created_at).getTime() < cutoff;
+  const current = visible.filter((o) => !isOld(o));
+  const older = visible.filter(isOld);
+  $('active-count').textContent = current.filter((o) => ACTIVE.includes(o.status)).length;
   grid.innerHTML = (attn ? `<div class="attn-bar" style="grid-column:1/-1">⚠ ${attn} delivery order${attn > 1 ? 's need' : ' needs'} attention</div>` : '')
-    + visible.map((o) => card(o, profiles[o.user_id])).join('');
+    + current.map((o) => card(o, profiles[o.user_id])).join('')
+    + (older.length ? `<details class="older"${olderOpen ? ' open' : ''}><summary>Older open orders from previous days (${older.length})</summary><div class="grid">${older.map((o) => card(o, profiles[o.user_id])).join('')}</div></details>` : '');
+  const det = grid.querySelector('details.older');
+  if (det) det.addEventListener('toggle', () => { olderOpen = det.open; });
 
   // Wire action buttons.
   grid.querySelectorAll('button[data-order]').forEach((btn) => {
