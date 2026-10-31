@@ -764,6 +764,14 @@ function card(o, prof) {
     Number(o.total || 0) - voidedValue - voidedValue * taxRate,
   );
 
+  // IS THIS PAID? The display never said, because until now everything that
+  // reached it had already been charged. A guest can now choose to settle
+  // with their server, so a ticket can legitimately be unpaid while the food
+  // is being cooked — and staff have to be able to see that at a glance, or
+  // the meal walks out the door for free. Declared before takePaymentHtml reads
+  // them: a const used above its declaration throws and blanks the whole board.
+  const atTable = o.payment_method === 'at_table';
+  const isPaid = o.payment_status === 'paid';
   const takePaymentHtml = atTable && !isPaid
     ? `<button class="act takepay" data-paid="${o.id}" data-total="${owed}">Mark paid</button>`
     : '';
@@ -776,13 +784,6 @@ function card(o, prof) {
 
   const statusLabel = o.status.replace(/_/g, ' ');
 
-  // IS THIS PAID? The display never said, because until now everything that
-  // reached it had already been charged. A guest can now choose to settle
-  // with their server, so a ticket can legitimately be unpaid while the food
-  // is being cooked — and staff have to be able to see that at a glance, or
-  // the meal walks out the door for free.
-  const atTable = o.payment_method === 'at_table';
-  const isPaid = o.payment_status === 'paid';
   const payHtml = isPaid
     ? '<span class="pay paid">Paid</span>'
     : atTable
