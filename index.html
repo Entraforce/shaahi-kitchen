@@ -385,7 +385,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 const POLL_MS = 10000;
-const COURIER_COLS = 'uber_delivery_id, uber_status, uber_tracking_url, uber_courier, uber_dispatch_state, uber_dispatch_error, courier_tip, refund_status';
+const COURIER_COLS = 'uber_delivery_id, uber_status, uber_tracking_url, uber_courier, uber_dispatch_state, uber_dispatch_error, courier_tip, refund_status, auto_refund_state, auto_refund_error';
 let courierCols = true;
 const ACTIVE = ['pending','accepted','preparing','ready','out_for_delivery'];
 
@@ -541,6 +541,16 @@ async function loadOrders() {
   if (error) { setConn(false, 'connection lost'); return; }
   setConn(true, 'live');
 
+  // A rejected delivery whose automatic refund FAILED stays on the board
+  // (even though it is cancelled) until staff refund it by hand.
+  if (courierCols && !showDone) {
+    const { data: stuck } = await supabase.from('orders').select(cols)
+      .eq('status', 'cancelled').eq('fulfillment', 'delivery').eq('auto_refund_state', 'failed')
+      .eq('refund_status', 'none').eq('is_test', false)
+      .gte('created_at', new Date(Date.now() - 24 * 3600e3).toISOString());
+    for (const o of stuck || []) if (!orders.some((x) => x.id === o.id)) orders.push(o);
+  }
+
   // Fetch customer profiles in one go (no FK dependency assumed).
   const userIds = [...new Set(orders.map((o) => o.user_id).filter(Boolean))];
   let profiles = {};
@@ -575,8 +585,9 @@ function render(orders, profiles) {
   }
   $('empty').classList.add('hidden');
 
-  const attn = visible.filter((o) => courierInfo(o)?.cls === 'c-bad' && o.status !== 'cancelled').length;
-  grid.innerHTML = (attn ? `<div class="attn-bar" style="grid-column:1/-1">⚠ ${attn} delivery order${attn > 1 ? 's need' : ' needs'} attention — courier problem</div>` : '')
+  const urgent = (o) => courierInfo(o)?.cls === 'c-bad' && (o.status !== 'cancelled' || o.auto_refund_state === 'failed');
+  const attn = visible.filter(urgent).length;
+  grid.innerHTML = (attn ? `<div class="attn-bar" style="grid-column:1/-1">⚠ ${attn} delivery order${attn > 1 ? 's need' : ' needs'} attention</div>` : '')
     + visible.map((o) => card(o, profiles[o.user_id])).join('');
 
   // Wire action buttons.
@@ -741,7 +752,14 @@ function courierInfo(o) {
     return { cls: 'c-bad', title: 'NEEDS ATTENTION — courier problem', detail: `${why || 'Uber could not complete this delivery'}. Call the customer, then rebook or refund.` };
   }
   if (o.status === 'cancelled') {
-    if (!o.uber_delivery_id) return null;
+    // Rejected before a courier existed: the customer is refunded automatically.
+    if (!o.uber_delivery_id) {
+      if (o.payment_status !== 'paid') return null;
+      if (o.auto_refund_state === 'failed') return { cls: 'c-bad', title: 'NEEDS ATTENTION — automatic refund failed', detail: `Refund this order in Refunds, then call the customer.${o.auto_refund_error ? ' (' + String(o.auto_refund_error).slice(0, 40) + ')' : ''}` };
+      if (o.refund_status === 'full' || o.auto_refund_state === 'refunded') return { cls: 'c-done', title: 'Refunded automatically', detail: 'No courier was booked. The customer was refunded in full.' };
+      if (o.refund_status === 'partial') return { cls: 'c-wait', title: 'Partly refunded', detail: 'Check Refunds if the whole order should be refunded.' };
+      return { cls: 'c-wait', title: 'Refunding the customer…', detail: 'Automatic, within a minute.' };
+    }
     if (o.uber_status === 'canceled') return { cls: 'c-done', title: 'Courier cancelled', detail: 'Uber courier cancelled with the order.' };
     if (['pickup_complete', 'dropoff', 'delivered'].includes(o.uber_status)) return { cls: 'c-bad', title: 'Cancelled after pickup — courier has the food', detail: 'Uber could not be cancelled. Call the customer.' };
     return { cls: 'c-wait', title: 'Cancelling the Uber courier…', detail: 'Within a minute.' };
@@ -855,7 +873,7 @@ function card(o, prof) {
       : '<span class="pay unpaid">Unpaid</span>';
 
   return `
-    <div class="card s-${o.status} ${flash}${courierInfo(o)?.cls === 'c-bad' && o.status !== 'cancelled' ? ' needs-attn' : ''}" id="card-${o.id}">
+    <div class="card s-${o.status} ${flash}${courierInfo(o)?.cls === 'c-bad' && (o.status !== 'cancelled' || o.auto_refund_state === 'failed') ? ' needs-attn' : ''}" id="card-${o.id}">
       <div class="card-head">
         <div class="ordno">${o.source === 'web' ? '<span style="background:var(--gold);color:var(--maroon-d);font-size:9px;padding:2px 7px;border-radius:5px;letter-spacing:.14em;vertical-align:middle;">WEB</span>' : ''}</div>
         <div class="ftype ${o.fulfillment}">${esc((o.fulfillment || '').replace('_',' '))}</div>
